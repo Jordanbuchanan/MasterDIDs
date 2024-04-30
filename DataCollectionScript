@@ -1,0 +1,391 @@
+#!/bin/bash
+
+startTime=$(date +%s)
+
+#Checks if all element directories exsist in the current directory. 
+
+runDir=$(pwd)
+echo "$runDir"
+echo "Is this the 'run' you want to process? (yes/no)"
+read -r -p "> " userResponse
+
+if [[ "$userResponse" == "yes" ]]; then
+      echo "Okay!"
+      echo ""
+
+else
+
+  echo "ABORT MISSION"
+  echo "Find the right 'run' directory and we will try this again..."
+  exit 1
+
+fi
+
+
+missingElements=()
+
+#Gather missing Directories and prompt to continue if any are missing
+
+for element in "name1" "name2" "name3" "name4" "name5" "name6" "name7"; do
+	if [[ ! -d "$element" ]]; then
+		missingElements+=("$element")
+	fi
+done
+
+
+
+#If there are missing directories, prompt the user
+
+if [[ ${#missingElements[@]} -ne 0 ]]; then
+	for missing in "${missingElements[@]}"; do
+		echo "$missing element does not exist. Continue? (yes/no)"
+		read -r -p "> " userDecision
+
+		if [[ "$userDecision" != "yes" ]]; then
+			echo "Exiting...while you figure that out.."
+			exit 1
+
+		fi
+	done
+fi
+
+
+#Declare associative arrays to hold element information
+
+declare -A element_idmp=(
+
+        ["name1"]="nameLable"
+        ["name2"]="nameLable"
+        ["name3"]="nameLable"
+        ["name4"]="nameLable"
+        ["name5"]="nameLable"
+        ["name6"]="nameLable"
+	["name7"]="nameLable"
+
+)
+
+
+
+declare -A element_classification=(
+
+        ["name1"]="SECRET//NOFORN"
+        ["name2"]="SECRET//NOFORN"
+        ["name3"]="SECRET//NOFORN"
+        ["name4"]="SECRET//NOFORN//SRD"
+        ["name5"]="SECRET//NOFORN"
+        ["name6"]="UNCLASSIFIED"
+	["name7"]="UNCLASSIFIED"
+
+)
+
+
+
+
+
+#Static info for .done file
+
+classified_by="LAB"
+derived_from="Statement..."
+declass_on="date"
+originator="LAB"
+mailing_address="address"
+distribution_statement="Statement..."
+class_of_done="UNCLASSIFIED"
+
+
+
+
+
+#capture current directory path for later
+
+#runDir=$(pwd)
+
+#navigate back to Julian day directory and capture that path for later
+
+cd ../
+jdDirName=$(basename "$PWD")
+
+#navigate to the event directory and capture that path for later
+
+cd ../..
+eventDirName=$(basename "$PWD")
+
+#make th DIDs directory to store .done .zip .md5 organized by julian day
+
+didsDir="$(pwd)/DIDs/$jdDirName"
+mkdir -p "$didsDir"
+#chmod -R 775 "$didsDir"
+
+
+
+#go back to the run directory so that script can be executed
+
+cd "$runDir" || exit
+
+#Checks for .tar.gz in ALL element folders
+
+echo ""
+echo "Checking for .tar.gz in all element directories.."
+echo ""
+
+
+
+elementsWithTarGz=()
+elementsMissingTarGz=()
+
+
+for element in "${!element_idmp[@]}"; do
+
+        if find "$element" -maxdepth 1 -type f -name "*.tar.gz" | grep -q .; then
+
+                elementsWithTarGz+=("$element")
+
+        else
+
+                elementsMissingTarGz+=("$element")
+
+        fi
+
+done
+
+
+
+#Prompt user with findings
+
+if [ ${#elementsMissingTarGz[@]} -eq 0 ]; then
+        echo "Found .tar.gz files in elements:"
+
+        for element in "${elementsWithTarGz[@]}"; do
+
+                echo "- $element"
+
+        done
+
+        echo "Ready to move on? (yes/no)"
+
+else
+
+        echo "The elemets are missing .tar.gz(s)"
+        for element in "${elementsMissingTarGz[@]}"; do
+
+                echo "- $element"
+
+        done
+
+	      echo ""
+        echo "Continue? (yes/no)"
+
+fi
+
+
+read -r -p "> " proceed
+
+if [[ "$proceed" != "yes" ]]; then
+        echo "Getting out of here.."
+        exit 1
+
+fi
+
+
+#loop through each element directry and process .tar.gz files
+
+for element in "${!element_idmp[@]}"; do
+        id="${element_idmp[$element]}"
+        elementDir="$element"
+
+
+
+        #Checks to make sure the .tar.gz is there
+
+        tarFilesFound=$(find "$elementDir" -maxdepth 1 -name "*.tar.gz" | wc -l)
+
+        if [[ $tarFilesFound -gt 0 ]]; then
+                #echo "Found .tar.gz file in $elementDir!"
+
+                #process each tar.gz found
+
+                for tarFile in "$elementDir"/*.tar.gz; do
+
+                  			echo ""
+                        echo "Zipping, .done-ing, md5-ing .tar.gz in $elementDir"
+                        chmod 775 "$tarFile"
+
+
+
+                        #Copy and rename .tar.gz to didsDir
+
+                        baseFileName=$(basename "$tarFile" .tar.gz)
+                        newTarFileName="${id}_${baseFileName}_dids.tar.gz"
+                        cp "$tarFile" "$didsDir/$newTarFileName"
+
+                        echo "Adding $element IDMP to .tar.gz"
+
+
+
+
+ if [[ "$element" == "GFC" ]] || [[ "$element" == "AF" ]] || [[ "$element" == "LMS" ]] || [[ "$element" == "IDT" ]] || [[ "$element" == "GMDSIM" ]] || [[ "$element" == "WS" ]]; then
+
+
+
+                #Overwriting logic for GFC and AF .md5
+
+                #Prepare file names
+
+                md5FileName="${id}_${baseFileName}_dids.md5"
+                md5FilePath="$didsDir/$md5FileName"
+
+
+                #check to see if file already exsist
+
+                if [[ -f "$md5FilePath" ]]; then
+
+                        #Prompt user to confrim overwrite
+
+                        read -r -p "$md5FileName already exsits. Do you want to overwrite it? (yes/no)" userConfrimMd5GfcAf
+
+                        if [[ "$userConfrimMd5GfcAf" != "yes" ]]; then
+                                echo "Not overwriting $md5FileName. Skipping.."
+                                echo ""
+                                continue
+
+                        fi
+                fi
+
+
+
+	(cd "$didsDir" && md5sum "$newTarFileName" > "$md5FileName")
+
+
+
+        #Checks for .md5 file exsit and setting permissions
+
+        #Attempt counter and max attempts
+
+        attempt=0
+        maxAttempt=30.
+
+        #Checks for .md5 file exsit and setting permissions
+
+                while [[ ! -f "$didsDir/$md5FileName" && $attempt -lt $maxAttempt ]]; do
+
+                        #echo "Waiting on $md5FileName to be created..."
+
+                        sleep 20 #checks every second
+
+                        ((attempt++))
+
+                done
+
+
+
+                #Once .md5 is created then set permissions
+
+                if [[ -f "$md5FilePath" ]];then
+
+            		chmod 666 "$md5FilePath"
+                #echo "Permissions set on $md5FileName"
+
+        else
+
+                echo "Failed to create $md5FileName after $maxAttempt attempts."
+
+
+                fi
+
+
+
+                #Overwrite logic for .done for GFC and AF
+
+                doneFileName="${id}_${baseFileName}_dids.done"
+                doneFilePath="$didsDir/$doneFileName"
+
+
+                #check to see if file already exsist
+
+                if [[ -f "$doneFilePath" ]]; then
+
+                        #Prompt user to confrim overwrite
+
+                        read -r -p "$doneFileName already exsits. Do you want to overwrite it? (yes/no)" userConfrimDoneGfcAf
+
+                        if [[ "$userConfrimDoneGfcAf" != "yes" ]]; then
+                                echo "Not overwriting $doneFileName. Skipping.."
+                                echo ""
+
+                                continue
+
+                        fi
+
+                fi
+
+
+
+		sha256=$(sha256sum "$didsDir/$newTarFileName" | cut -d' ' -f1)
+
+                todayDate=$(date +%y/%m/%d)
+
+                cat <<EOF > "$doneFilePath"
+
+
+
+Event Name: $eventDirName
+
+IDMP: $id
+
+class of pro: $element
+
+date: $todayDate
+
+overall class of pro: ${element_classification[$element]}
+
+classed by: $classified_by
+
+Derived from: $derived_from
+
+declass on: $declass_on
+
+originator: $originator 
+
+mailing address: $mailing_address
+
+dis statment: $distribution_statement
+
+call of done: $class_of_done
+
+sha256: $sha256
+
+EOF
+
+        chmod 666 "$doneFilePath"
+
+
+	fi
+
+done
+
+	fi
+
+done
+
+
+
+endTime=$(date +%s)
+duration=$((endTime - startTime))
+
+
+#Convert duration into hours, minutes, and seconds
+
+hours=$((duration / 3600))
+mins=$(( (duration % 3600) / 60))
+secs=$((duration % 60))
+
+
+
+#Report to user
+
+echo "This took $hours hour(s), $mins minutes, and $secs second(s)."
+echo ""
+echo "later Sk8ter..."
+
+
+
